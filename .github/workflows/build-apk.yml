@@ -9,19 +9,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract project
+      - name: Extract Android project
         run: |
           mkdir -p /tmp/dreamx
           unzip -q DreamX_Homes_Android_Project.zip -d /tmp/dreamx
+
           cp -R /tmp/dreamx/app .
           cp /tmp/dreamx/build.gradle .
           cp /tmp/dreamx/settings.gradle .
           cp /tmp/dreamx/gradle.properties .
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -42,11 +43,47 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Build APK
+      - name: Fix Java and Kotlin compatibility
+        run: |
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+
+          android {
+              namespace 'com.dreamxhomes.reelmaker'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.dreamxhomes.reelmaker'
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 1
+                  versionName '0.1.0'
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+          }
+
+          dependencies {
+              implementation 'androidx.activity:activity-ktx:1.9.3'
+          }
+          EOF
+
+      - name: Build Android APK
         run: gradle --no-daemon assembleDebug
 
-      - name: Upload APK
+      - name: Upload DreamX Homes APK
         uses: actions/upload-artifact@v4
         with:
-          name: DreamX-Homes-debug-apk
+          name: DreamX-Homes-Android-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
