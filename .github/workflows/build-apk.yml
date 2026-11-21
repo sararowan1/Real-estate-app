@@ -59,7 +59,7 @@ jobs:
           yes | "$SDKMANAGER" \
             --sdk_root="$ANDROID_HOME" --licenses || true
 
-      # 7. Install SDK
+      # 7. Install Android SDK
       - name: Install Android SDK packages
         run: |
           "$SDKMANAGER" \
@@ -68,13 +68,10 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      # 8. Extract project
+      # 8. Extract Android project
       - name: Extract DreamX Homes project
         run: |
-          if [ ! -f DreamX_Homes_Android_Project.zip ]; then
-            echo "Android project ZIP not found"
-            exit 1
-          fi
+          test -f DreamX_Homes_Android_Project.zip
 
           mkdir -p android-project
 
@@ -84,87 +81,74 @@ jobs:
           test -f android-project/settings.gradle
           test -f android-project/app/build.gradle
 
-      # 9. Automatically fix Java/Kotlin JVM targets
-      - name: Fix Java and Kotlin compatibility
+      # 9. Fix complete Android build configuration
+      - name: Configure Android and Kotlin
+        working-directory: android-project
         run: |
-          python3 <<'PY'
-          from pathlib import Path
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
 
-          path = Path("android-project/app/build.gradle")
-          content = path.read_text()
+          android {
+              namespace 'com.dreamxhomes.reelmaker'
+              compileSdk 35
 
-          if "compileOptions" not in content:
-              marker = "    defaultConfig {"
-              if marker not in content:
-                  raise SystemExit("defaultConfig block not found")
-
-              start = content.index(marker)
-              depth = 0
-              end = None
-
-              for i in range(start, len(content)):
-                  if content[i] == "{":
-                      depth += 1
-                  elif content[i] == "}":
-                      depth -= 1
-                      if depth == 0:
-                          end = i + 1
-                          break
-
-              if end is None:
-                  raise SystemExit("Could not locate defaultConfig end")
-
-              content = (
-                  content[:end] +
-                  """
+              defaultConfig {
+                  applicationId 'com.dreamxhomes.reelmaker'
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 12
+                  versionName '0.10.1'
+              }
 
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
               }
-          """ + content[end:]
-              )
 
-          if "kotlinOptions" not in content:
-              pos = content.rfind("}")
-              if pos < 0:
-                  raise SystemExit("Android block closing brace not found")
-
-              content = (
-                  content[:pos] +
-                  """
               kotlinOptions {
                   jvmTarget = '17'
               }
-          """ + content[pos:]
-              )
+          }
 
-          path.write_text(content)
+          dependencies {
+              implementation 'androidx.activity:activity-ktx:1.9.3'
+          }
+          EOF
 
-          print("Updated app/build.gradle:")
-          print(content)
-          PY
+          echo "Android build configuration:"
+          cat app/build.gradle
 
-      # 10. Build APK
+      # 10. Verify project source
+      - name: Verify Kotlin source files
+        working-directory: android-project
+        run: |
+          find app/src/main -name "*.kt" -type f
+          test -f app/src/main/AndroidManifest.xml
+
+      # 11. Build APK
       - name: Build DreamX Homes APK
         run: |
           gradle --no-daemon \
             -p android-project \
-            clean assembleDebug
+            clean assembleDebug \
+            --stacktrace
 
-      # 11. Verify APK
+      # 12. Verify APK
       - name: Verify APK
         run: |
           APK="android-project/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK" ]; then
-            echo "APK not generated"
+            echo "APK was not generated"
             exit 1
           fi
 
           ls -lh "$APK"
 
-      # 12. Upload APK
+      # 13. Upload APK
       - name: Upload DreamX Homes APK
         uses: actions/upload-artifact@v4
         with:
