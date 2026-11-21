@@ -4,39 +4,123 @@ name: Build DreamX Homes APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches:
+      - main
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout project
+      # 1. Download repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      # 2. Configure Java 17
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      # 3. Install Gradle 8.9
+      - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # 4. Configure Android SDK
+      - name: Configure Android SDK
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME}"
+          echo "ANDROID_HOME=${ANDROID_HOME}" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME}" >> $GITHUB_ENV
 
-      - name: Install Android platform
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          echo "${ANDROID_HOME}/platform-tools" >> $GITHUB_PATH
 
-      - name: Extract Android source project
-        run: unzip -o DreamX_Homes_Android_Project.zip -d android-project
+      # 5. Find SDK Manager
+      - name: Find Android SDK Manager
+        id: sdk
+        shell: bash
+        run: |
+          SDKMANAGER=$(find "${ANDROID_HOME}/cmdline-tools" \
+            -type f -name sdkmanager | sort -V | tail -n 1)
 
-      - name: Build debug APK
-        run: gradle --no-daemon -p android-project assembleDebug
+          if [ -z "$SDKMANAGER" ]; then
+            echo "Android SDK Manager not found"
+            exit 1
+          fi
 
-      - name: Upload APK
+          echo "SDKMANAGER=$SDKMANAGER" >> $GITHUB_ENV
+
+      # 6. Accept SDK licenses
+      - name: Accept Android SDK licenses
+        run: |
+          yes | "$SDKMANAGER" \
+            --sdk_root="${ANDROID_HOME}" \
+            --licenses || true
+
+      # 7. Install Android SDK packages
+      - name: Install Android SDK packages
+        run: |
+          "$SDKMANAGER" \
+            --sdk_root="${ANDROID_HOME}" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      # 8. Extract updated Android project
+      - name: Extract DreamX Homes project
+        run: |
+          if [ ! -f DreamX_Homes_Android_Project.zip ]; then
+            echo "Android project ZIP not found!"
+            exit 1
+          fi
+
+          mkdir -p android-project
+
+          unzip -o DreamX_Homes_Android_Project.zip \
+            -d android-project
+
+          if [ ! -f android-project/settings.gradle ]; then
+            echo "settings.gradle not found!"
+            exit 1
+          fi
+
+          if [ ! -f android-project/app/build.gradle ]; then
+            echo "app/build.gradle not found!"
+            exit 1
+          fi
+
+      # 9. Build Android APK
+      - name: Build DreamX Homes APK
+        run: |
+          gradle --no-daemon \
+            -p android-project \
+            clean assembleDebug
+
+      # 10. Verify APK
+      - name: Verify APK
+        run: |
+          APK="android-project/app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "APK was not generated!"
+            exit 1
+          fi
+
+          ls -lh "$APK"
+
+      # 11. Upload APK
+      - name: Upload DreamX Homes APK
         uses: actions/upload-artifact@v4
         with:
-          name: DreamX-Homes-debug-apk
+          name: DreamX-Homes-Android-APK
           path: android-project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
